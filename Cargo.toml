@@ -6,7 +6,7 @@ homepage = "https://github.com/notsatvrn/double-ratchet-rs"
 repository = "https://github.com/notsatvrn/double-ratchet-rs"
 readme = "README.md"
 keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
-version = "0.4.3"
+version = "0.4.4"
 edition = "2021"
 license = "MIT"
 
