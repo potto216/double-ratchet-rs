@@ -162,7 +162,7 @@
 //!
 //! ## License
 //!
-//! This project is licensed under the [MIT license](https://github.com/magnetite-dev/double-ratchet-rs/blob/main/LICENSE).
+//! This project is licensed under the [MIT license](https://github.com/notsatvrn/double-ratchet-rs/blob/main/LICENSE).
 //!
 //! [1]: https://signal.org/docs/specifications/doubleratchet/
 //! [2]: https://signal.org/docs/specifications/doubleratchet/#recommended-cryptographic-algorithms

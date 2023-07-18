@@ -1,9 +1,9 @@
 [package]
 name = "double-ratchet-rs"
-authors = ["Magnetite Contributors", "Hannes Furmans"]
+authors = ["satvrn", "Hannes Furmans"]
 description = "A pure Rust implementation of the Double Ratchet Algorithm as specified by Signal."
-homepage = "https://github.com/magnetite-dev/double-ratchet-rs"
-repository = "https://github.com/magnetite-dev/double-ratchet-rs"
+homepage = "https://github.com/notsatvrn/double-ratchet-rs"
+repository = "https://github.com/notsatvrn/double-ratchet-rs"
 readme = "README.md"
 keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
 version = "0.4.3"

@@ -1,7 +1,7 @@
 [![Crate](https://img.shields.io/crates/v/double-ratchet-rs)](https://crates.io/crates/double-ratchet-rs)
-[![License](https://img.shields.io/github/license/magnetite-dev/double-ratchet-rs)](https://github.com/magnetite-dev/double-ratchet-rs/blob/main/LICENSE)
-[![Coverage Status](https://coveralls.io/repos/github/magnetite-dev/double-ratchet-rs/badge.svg?branch=main)](https://coveralls.io/github/magnetite-dev/double-ratchet-rs?branch=main)
-[![Workflow Status](https://github.com/magnetite-dev/double-ratchet-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/magnetite-dev/double-ratchet-rs/actions/workflows/rust.yml)
+[![License](https://img.shields.io/github/license/notsatvrn/double-ratchet-rs)](https://github.com/notsatvrn/double-ratchet-rs/blob/main/LICENSE)
+[![Coverage Status](https://coveralls.io/repos/github/notsatvrn/double-ratchet-rs/badge.svg?branch=main)](https://coveralls.io/github/notsatvrn/double-ratchet-rs?branch=main)
+[![Workflow Status](https://github.com/notsatvrn/double-ratchet-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/notsatvrn/double-ratchet-rs/actions/workflows/rust.yml)
 
 # double-ratchet-rs 
 
@@ -169,7 +169,7 @@ The current MSRV is 1.61.0.
 
 ## License
 
-This project is licensed under the [MIT license](https://github.com/magnetite-dev/double-ratchet-rs/blob/main/LICENSE).
+This project is licensed under the [MIT license](https://github.com/notsatvrn/double-ratchet-rs/blob/main/LICENSE).
 
 [1]: https://signal.org/docs/specifications/doubleratchet/
 [2]: https://signal.org/docs/specifications/doubleratchet/#recommended-cryptographic-algorithms
