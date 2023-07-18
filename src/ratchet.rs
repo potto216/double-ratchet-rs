@@ -1,24 +1,20 @@
-//! Encryption with encrypted Headers
-//!
+//! Ratchet providing encryption and decryption.
 
+use crate::aead::{decrypt, encrypt};
 use crate::dh::DhKeyPair;
-use p256::{PublicKey, SecretKey};
-use hashbrown::HashMap;
-use crate::kdf_root::{kdf_rk, kdf_rk_he};
-use crate::header::Header;
-use alloc::vec::Vec;
+use crate::header::{Header, EncryptedHeader};
 use crate::kdf_chain::kdf_ck;
-use crate::aead::{encrypt, decrypt};
-use alloc::string::{ToString, String};
-use zeroize::Zeroize;
-use rand_core::OsRng;
+use crate::kdf_root::{kdf_rk, kdf_rk_he};
+use alloc::vec::Vec;
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
+use x25519_dalek::PublicKey;
+use zeroize::Zeroize;
 
 const MAX_SKIP: usize = 100;
 
-type HeaderNonceCipherNonce = ((Vec<u8>, [u8; 12]), Vec<u8>, [u8; 12]);
-
-/// Object Representing Ratchet
+/// A standard ratchet.
+#[derive(Deserialize, Serialize, PartialEq, Debug)]
 pub struct Ratchet {
     dhs: DhKeyPair,
     dhr: Option<PublicKey>,
@@ -28,18 +24,14 @@ pub struct Ratchet {
     ns: usize,
     nr: usize,
     pn: usize,
-    mkskipped: HashMap<(Vec<u8>, usize), [u8; 32]>,
+    mkskipped: HashMap<([u8; 32], usize), [u8; 32]>,
 }
 
-impl Drop for Ratchet {
-    fn drop(&mut self) {
-        if let Some(mut _d) = self.dhr {
-            let sk = SecretKey::random(&mut OsRng);
-            _d = sk.public_key()
-        }
+impl Zeroize for Ratchet {
+    fn zeroize(&mut self) {
         self.rk.zeroize();
-        self.ckr.zeroize();
         self.cks.zeroize();
+        self.ckr.zeroize();
         self.ns.zeroize();
         self.nr.zeroize();
         self.pn.zeroize();
@@ -47,12 +39,19 @@ impl Drop for Ratchet {
     }
 }
 
+impl Drop for Ratchet {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
 impl Ratchet {
-    /// Init Ratchet with other [PublicKey]. Initialized second.
+    /// Initialize a [Ratchet] with a remote [PublicKey]. Initialized second.
+    /// Requires a shared key and a [PublicKey].
+    /// Returns a [Ratchet].
     pub fn init_alice(sk: [u8; 32], bob_dh_public_key: PublicKey) -> Self {
         let dhs = DhKeyPair::new();
-        let (rk, cks) = kdf_rk(&sk,
-                               &dhs.key_agreement(&bob_dh_public_key));
+        let (rk, cks) = kdf_rk(&sk, &dhs.key_agreement(&bob_dh_public_key));
         Ratchet {
             dhs,
             dhr: Some(bob_dh_public_key),
@@ -66,7 +65,9 @@ impl Ratchet {
         }
     }
 
-    /// Init Ratchet without other [PublicKey]. Initialized first. Returns [Ratchet] and [PublicKey].
+    /// Initialize a [Ratchet] without a remote [PublicKey]. Initialized first.
+    /// Requires a shared key.
+    /// Returns a [Ratchet] and a [PublicKey].
     pub fn init_bob(sk: [u8; 32]) -> (Self, PublicKey) {
         let dhs = DhKeyPair::new();
         let public_key = dhs.public_key;
@@ -84,22 +85,37 @@ impl Ratchet {
         (ratchet, public_key)
     }
 
-    /// Encrypt Plaintext with [Ratchet]. Returns Message [Header] and ciphertext.
-    pub fn ratchet_encrypt(&mut self, plaintext: &[u8], ad: &[u8]) -> (Header, Vec<u8>, [u8; 12]) {
+    /// Encrypt bytes with a [Ratchet].
+    /// Requires bytes and associated bytes.
+    /// Returns a [Header], encrypted bytes, and a nonce.
+    pub fn encrypt(&mut self, data: &[u8], associated_data: &[u8]) -> (Header, Vec<u8>, [u8; 12]) {
         let (cks, mk) = kdf_ck(&self.cks.unwrap());
         self.cks = Some(cks);
         let header = Header::new(&self.dhs, self.pn, self.ns);
         self.ns += 1;
-        let (encrypted_data, nonce) = encrypt(&mk, plaintext, &header.concat(ad));
+        let (encrypted_data, nonce) = encrypt(&mk, data, &header.concat(associated_data));
         (header, encrypted_data, nonce)
     }
 
-    fn try_skipped_message_keys(&mut self, header: &Header, ciphertext: &[u8], nonce: &[u8; 12], ad: &[u8]) -> Option<Vec<u8>> {
-        if self.mkskipped.contains_key(&(header.ex_public_key_bytes(), header.n)) {
-            let mk = *self.mkskipped.get(&(header.ex_public_key_bytes(), header.n))
+    fn try_skipped_message_keys(
+        &mut self,
+        header: &Header,
+        enc_data: &[u8],
+        nonce: &[u8; 12],
+        associated_data: &[u8],
+    ) -> Option<Vec<u8>> {
+        if self
+            .mkskipped
+            .contains_key(&(header.public_key.to_bytes(), header.n))
+        {
+            let mk = *self
+                .mkskipped
+                .get(&(header.public_key.to_bytes(), header.n))
                 .unwrap();
-            self.mkskipped.remove(&(header.ex_public_key_bytes(), header.n)).unwrap();
-            Some(decrypt(&mk, ciphertext, &header.concat(ad), nonce))
+            self.mkskipped
+                .remove(&(header.public_key.to_bytes(), header.n))
+                .unwrap();
+            Some(decrypt(&mk, enc_data, &header.concat(associated_data), nonce))
         } else {
             None
         }
@@ -115,19 +131,28 @@ impl Ratchet {
                     let (ckr, mk) = kdf_ck(&d);
                     self.ckr = Some(ckr);
                     d = ckr;
-                    self.mkskipped.insert((self.dhr.unwrap().to_string().as_bytes().to_vec(), self.nr), mk);
+                    self.mkskipped
+                        .insert((self.dhr.unwrap().to_bytes(), self.nr), mk);
                     self.nr += 1
                 }
                 Ok(())
-            },
-            None => { Err("No Ckr set") }
+            }
+            None => Err("No Ckr set"),
         }
     }
 
-    /// Decrypt ciphertext with ratchet. Requires Header. Returns plaintext.
-    pub fn ratchet_decrypt(&mut self, header: &Header, ciphertext: &[u8], nonce: &[u8; 12], ad: &[u8]) -> Vec<u8> {
-        let plaintext = self.try_skipped_message_keys(header, ciphertext, nonce, ad);
-        match plaintext {
+    /// Decrypt encrypted bytes with a [Ratchet].
+    /// Requires a [Header], encrypted bytes, a nonce, and associated bytes.
+    /// Returns decrypted bytes.
+    pub fn decrypt(
+        &mut self,
+        header: &Header,
+        enc_data: &[u8],
+        nonce: &[u8; 12],
+        associated_data: &[u8],
+    ) -> Vec<u8> {
+        let data = self.try_skipped_message_keys(header, enc_data, nonce, associated_data);
+        match data {
             Some(d) => d,
             None => {
                 if Some(header.public_key) != self.dhr {
@@ -140,7 +165,7 @@ impl Ratchet {
                 let (ckr, mk) = kdf_ck(&self.ckr.unwrap());
                 self.ckr = Some(ckr);
                 self.nr += 1;
-                decrypt(&mk, ciphertext, &header.concat(ad), nonce)
+                decrypt(&mk, enc_data, &header.concat(associated_data), nonce)
             }
         }
     }
@@ -150,19 +175,31 @@ impl Ratchet {
         self.ns = 0;
         self.nr = 0;
         self.dhr = Some(header.public_key);
-        let (rk, ckr) = kdf_rk(&self.rk,
-                               &self.dhs.key_agreement(&self.dhr.unwrap()));
+        let (rk, ckr) = kdf_rk(&self.rk, &self.dhs.key_agreement(&self.dhr.unwrap()));
         self.rk = rk;
         self.ckr = Some(ckr);
         self.dhs = DhKeyPair::new();
-        let (rk, cks) = kdf_rk(&self.rk,
-        &self.dhs.key_agreement(&self.dhr.unwrap()));
+        let (rk, cks) = kdf_rk(&self.rk, &self.dhs.key_agreement(&self.dhr.unwrap()));
         self.rk = rk;
         self.cks = Some(cks);
     }
+
+    /// Export a [Ratchet].
+    /// Returns bytes.
+    pub fn export(&self) -> Vec<u8> {
+        postcard::to_allocvec(&self).unwrap()
+    }
+
+    /// Import a previously exported [Ratchet].
+    /// Requires bytes.
+    /// Returns a [Ratchet], or nothing if invalid data is provided.
+    pub fn import(data: &[u8]) -> Option<Self> {
+        postcard::from_bytes(data).ok()
+    }
 }
 
-#[derive(PartialEq, Debug)]
+/// A [Ratchet], but with header encryption.
+#[derive(Deserialize, Serialize, PartialEq, Debug)]
 pub struct RatchetEncHeader {
     dhs: DhKeyPair,
     dhr: Option<PublicKey>,
@@ -176,7 +213,7 @@ pub struct RatchetEncHeader {
     hkr: Option<[u8; 32]>,
     nhks: Option<[u8; 32]>,
     nhkr: Option<[u8; 32]>,
-    mkskipped: HashMap<(Option<[u8; 32]>, usize), [u8; 32]>
+    mkskipped: HashMap<(Option<[u8; 32]>, usize), [u8; 32]>,
 }
 
 impl Zeroize for RatchetEncHeader {
@@ -192,7 +229,6 @@ impl Zeroize for RatchetEncHeader {
         self.nhks.zeroize();
         self.nhkr.zeroize();
         self.mkskipped.clear();
-
     }
 }
 
@@ -202,90 +238,16 @@ impl Drop for RatchetEncHeader {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct ExRatchetEncHeader {
-    dhs: (String, String),
-    dhr: Option<String>,
-    rk: [u8; 32],
-    cks: Option<[u8; 32]>,
-    ckr: Option<[u8; 32]>,
-    ns: usize,
-    nr: usize,
-    pn: usize,
-    hks: Option<[u8; 32]>,
-    hkr: Option<[u8; 32]>,
-    nhks: Option<[u8; 32]>,
-    nhkr: Option<[u8; 32]>,
-    mkskipped: HashMap<(Option<[u8; 32]>, usize), [u8; 32]>
-}
-
-impl From<&RatchetEncHeader> for ExRatchetEncHeader {
-    fn from(reh: &RatchetEncHeader) -> Self {
-        let private_dhs = reh.dhs.private_key.to_jwk_string();
-        let public_dhs = reh.dhs.public_key.to_jwk_string();
-        let dhs = (private_dhs.to_string(), public_dhs);
-        let dhr = reh.dhr.map(|e| e.to_jwk_string());
-        let rk = reh.rk;
-        let cks = reh.cks;
-        let ckr = reh.ckr;
-        let ns = reh.ns;
-        let nr = reh.nr;
-        let pn = reh.pn;
-        let hks = reh.hks;
-        let hkr = reh.hkr;
-        let nhks = reh.nhks;
-        let nhkr = reh.nhkr;
-        let mkskipped = reh.mkskipped.clone();
-        Self {
-            dhs,
-            dhr,
-            rk,
-            cks,
-            ckr,
-            ns,
-            nr,
-            pn,
-            hks,
-            hkr,
-            nhks,
-            nhkr,
-            mkskipped
-        }
-    }
-}
-
-impl From<&ExRatchetEncHeader> for RatchetEncHeader {
-    fn from(ex_reh: &ExRatchetEncHeader) -> Self {
-        let private_dhs = SecretKey::from_jwk_str(&ex_reh.dhs.0).unwrap();
-        let public_dhs = PublicKey::from_jwk_str(&ex_reh.dhs.1).unwrap();
-        let dhs = DhKeyPair {
-            private_key: private_dhs,
-            public_key: public_dhs
-        };
-        let dhr = ex_reh.dhr.as_ref().map(|e| PublicKey::from_jwk_str(e).unwrap());
-        Self {
-            dhs,
-            dhr,
-            rk: ex_reh.rk,
-            cks: ex_reh.cks,
-            ckr: ex_reh.ckr,
-            ns: ex_reh.ns,
-            nr: ex_reh.nr,
-            pn: ex_reh.pn,
-            hks: ex_reh.hks,
-            hkr: ex_reh.hkr,
-            nhks: ex_reh.nhks,
-            nhkr: ex_reh.nhkr,
-            mkskipped: ex_reh.mkskipped.clone()
-        }
-    }
-}
-
 impl RatchetEncHeader {
-    pub fn init_alice(sk: [u8; 32],
-                      bob_dh_public_key: PublicKey,
-                      shared_hka: [u8; 32],
-                      shared_nhkb: [u8; 32]) -> Self {
+    /// Initialize a [RatchetEncHeader] with a remote [PublicKey]. Initialized second.
+    /// Requires a shared key, a [PublicKey], a shared HKA, and a shared NHKB.
+    /// Returns a [RatchetEncHeader].
+    pub fn init_alice(
+        sk: [u8; 32],
+        bob_dh_public_key: PublicKey,
+        shared_hka: [u8; 32],
+        shared_nhkb: [u8; 32],
+    ) -> Self {
         let dhs = DhKeyPair::new();
         let (rk, cks, nhks) = kdf_rk_he(&sk, &dhs.key_agreement(&bob_dh_public_key));
         RatchetEncHeader {
@@ -305,7 +267,14 @@ impl RatchetEncHeader {
         }
     }
 
-    pub fn init_bob(sk: [u8; 32], shared_hka: [u8; 32], shared_nhkb: [u8; 32]) -> (Self, PublicKey) {
+    /// Initialize a [RatchetEncHeader] without a remote [PublicKey]. Initialized first.
+    /// Requires a shared key, a shared HKA, and a shared NHKB.
+    /// Returns a [RatchetEncHeader] and a [PublicKey].
+    pub fn init_bob(
+        sk: [u8; 32],
+        shared_hka: [u8; 32],
+        shared_nhkb: [u8; 32],
+    ) -> (Self, PublicKey) {
         let dhs = DhKeyPair::new();
         let public_key = dhs.public_key;
         let ratchet = Self {
@@ -326,50 +295,70 @@ impl RatchetEncHeader {
         (ratchet, public_key)
     }
 
-    pub fn ratchet_encrypt(&mut self, plaintext: &[u8], ad: &[u8]) -> HeaderNonceCipherNonce {
+    /// Encrypt bytes with a [RatchetEncHeader].
+    /// Requires bytes and associated bytes.
+    /// Returns an [EncryptedHeader], encrypted bytes, and a nonce.
+    pub fn encrypt(&mut self, data: &[u8], associated_data: &[u8]) -> (EncryptedHeader, Vec<u8>, [u8; 12]) {
         let (cks, mk) = kdf_ck(&self.cks.unwrap());
         self.cks = Some(cks);
         let header = Header::new(&self.dhs, self.pn, self.ns);
-        let enc_header = header.encrypt(&self.hks.unwrap(), ad);
+        let enc_header = header.encrypt(&self.hks.unwrap(), associated_data);
         self.ns += 1;
-        let encrypted = encrypt(&mk, plaintext, &header.concat(ad));
+        let encrypted = encrypt(&mk, data, &header.concat(associated_data));
         (enc_header, encrypted.0, encrypted.1)
     }
 
-    fn try_skipped_message_keys(&mut self, enc_header: &(Vec<u8>, [u8; 12]),
-                                ciphertext: &[u8], nonce: &[u8; 12], ad: &[u8]) -> (Option<Vec<u8>>, Option<Header>) {
-
+    fn try_skipped_message_keys(
+        &mut self,
+        enc_header: &EncryptedHeader,
+        enc_data: &[u8],
+        nonce: &[u8; 12],
+        associated_data: &[u8],
+    ) -> (Option<Vec<u8>>, Option<Header>) {
         let ret_data = self.mkskipped.clone().into_iter().find(|e| {
-            let header = Header::decrypt(&e.0.0, &enc_header.0, &enc_header.1);
+            let header = enc_header.decrypt(&e.0.0);
             match header {
                 None => false,
-                Some(h) => h.n == e.0.1
+                Some(h) => h.n == e.0 .1,
             }
         });
         match ret_data {
-            None => { (None, None) },
+            None => (None, None),
             Some(data) => {
-                let header = Header::decrypt(&data.0.0, &enc_header.0, &enc_header.1);
+                let header = enc_header.decrypt(&data.0.0);
                 let mk = data.1;
-                self.mkskipped.remove(&(data.0.0, data.0.1));
-                (Some(decrypt(&mk, ciphertext, &header.clone().unwrap().concat(ad), nonce)), header)
+                self.mkskipped.remove(&(data.0 .0, data.0 .1));
+                (
+                    Some(decrypt(
+                        &mk,
+                        enc_data,
+                        &header.clone().unwrap().concat(associated_data),
+                        nonce,
+                    )),
+                    header,
+                )
             }
         }
     }
 
-    fn decrypt_header(&mut self, enc_header: &(Vec<u8>, [u8; 12])) -> Result<(Header, bool), &str> {
-        let header = Header::decrypt(&self.hkr, &enc_header.0, &enc_header.1);
-        if let Some(h) = header { return Ok((h, false)) };
-        let header = Header::decrypt(&self.nhkr, &enc_header.0, &enc_header.1);
+    /// Decrypt an [EncryptedHeader] with a [RatchetEncHeader].
+    /// Requires an [EncryptedHeader].
+    /// Returns a decrypted [Header] and boolean, if decryption was successful.
+    fn decrypt_header(&mut self, enc_header: &EncryptedHeader) -> Result<(Header, bool), &str> {
+        let header = enc_header.decrypt(&self.hkr);
+        if let Some(h) = header {
+            return Ok((h, false));
+        };
+        let header = enc_header.decrypt(&self.nhkr);
         match header {
             Some(h) => Ok((h, true)),
-            None => Err("Header is unencryptable!")
+            None => Err("Header is unencryptable!"),
         }
     }
 
     fn skip_message_keys(&mut self, until: usize) -> Result<(), &str> {
         if self.nr + MAX_SKIP < until {
-            return Err("Skipping went wrong")
+            return Err("Skipping went wrong");
         }
         if let Some(d) = &mut self.ckr {
             while self.nr < until {
@@ -389,22 +378,31 @@ impl RatchetEncHeader {
         self.hks = self.nhks;
         self.hkr = self.nhkr;
         self.dhr = Some(header.public_key);
-        let (rk, ckr, nhkr) = kdf_rk_he(&self.rk,
-                                        &self.dhs.key_agreement(&self.dhr.unwrap()));
+        let (rk, ckr, nhkr) = kdf_rk_he(&self.rk, &self.dhs.key_agreement(&self.dhr.unwrap()));
         self.rk = rk;
         self.ckr = Some(ckr);
         self.nhkr = Some(nhkr);
         self.dhs = DhKeyPair::new();
-        let (rk, cks, nhks) = kdf_rk_he(&self.rk,
-                                        &self.dhs.key_agreement(&self.dhr.unwrap()));
+        let (rk, cks, nhks) = kdf_rk_he(&self.rk, &self.dhs.key_agreement(&self.dhr.unwrap()));
         self.rk = rk;
         self.cks = Some(cks);
         self.nhks = Some(nhks);
     }
 
-    pub fn ratchet_decrypt(&mut self, enc_header: &(Vec<u8>, [u8; 12]), ciphertext: &[u8], nonce: &[u8; 12], ad: &[u8]) -> Vec<u8> {
-        let (plaintext, _) = self.try_skipped_message_keys(enc_header, ciphertext, nonce, ad);
-        if let Some(d) = plaintext { return d };
+    /// Decrypt encrypted bytes with a [RatchetEncHeader].
+    /// Requires an [EncryptedHeader], encrypted bytes, a nonce, and associated bytes.
+    /// Returns decrypted bytes.
+    pub fn decrypt(
+        &mut self,
+        enc_header: &EncryptedHeader,
+        enc_data: &[u8],
+        nonce: &[u8; 12],
+        associated_data: &[u8],
+    ) -> Vec<u8> {
+        let (data, _) = self.try_skipped_message_keys(enc_header, enc_data, nonce, associated_data);
+        if let Some(d) = data {
+            return d;
+        };
         let (header, dh_ratchet) = self.decrypt_header(enc_header).unwrap();
         if dh_ratchet {
             self.skip_message_keys(header.pn).unwrap();
@@ -414,12 +412,23 @@ impl RatchetEncHeader {
         let (ckr, mk) = kdf_ck(&self.ckr.unwrap());
         self.ckr = Some(ckr);
         self.nr += 1;
-        decrypt(&mk, ciphertext, &header.concat(ad), nonce)
+        decrypt(&mk, enc_data, &header.concat(associated_data), nonce)
     }
 
-    pub fn ratchet_decrypt_w_header(&mut self, enc_header: &(Vec<u8>, [u8; 12]), ciphertext: &[u8], nonce: &[u8; 12], ad: &[u8]) -> (Vec<u8>, Header) {
-        let (plaintext, header) = self.try_skipped_message_keys(enc_header, ciphertext, nonce, ad);
-        if let Some(d) = plaintext { return (d, header.unwrap()) };
+    /// Decrypt encrypted bytes and an [EncryptedHeader] with a [RatchetEncHeader].
+    /// Requires an [EncryptedHeader], encrypted bytes, a nonce, and associated bytes.
+    /// Returns decrypted bytes and a [Header].
+    pub fn decrypt_with_header(
+        &mut self,
+        enc_header: &EncryptedHeader,
+        enc_data: &[u8],
+        nonce: &[u8; 12],
+        associated_data: &[u8],
+    ) -> (Vec<u8>, Header) {
+        let (data, header) = self.try_skipped_message_keys(enc_header, enc_data, nonce, associated_data);
+        if let Some(d) = data {
+            return (d, header.unwrap());
+        };
         let (header, dh_ratchet) = self.decrypt_header(enc_header).unwrap();
         if dh_ratchet {
             self.skip_message_keys(header.pn).unwrap();
@@ -429,18 +438,22 @@ impl RatchetEncHeader {
         let (ckr, mk) = kdf_ck(&self.ckr.unwrap());
         self.ckr = Some(ckr);
         self.nr += 1;
-        (decrypt(&mk, ciphertext, &header.concat(ad), nonce), header)
+        (
+            decrypt(&mk, enc_data, &header.concat(associated_data), nonce),
+            header,
+        )
     }
 
-    /// Export the ratchet to Binary data
+    /// Export a [RatchetEncHeader].
+    /// Returns bytes.
     pub fn export(&self) -> Vec<u8> {
-        let ex: ExRatchetEncHeader = self.into();
-        bincode::serialize(&ex).unwrap()
+        postcard::to_allocvec(&self).unwrap()
     }
 
-    /// Import the ratchet from Binary data. Panics when binary data is invalid.
-    pub fn import(inp: &[u8]) -> Option<Self> {
-        let ex: ExRatchetEncHeader = bincode::deserialize(inp).ok()?;
-        Some(RatchetEncHeader::from(&ex))
+    /// Import a previously exported [RatchetEncHeader].
+    /// Requires bytes.
+    /// Returns a [RatchetEncHeader], or nothing if invalid data is provided.
+    pub fn import(data: &[u8]) -> Option<Self> {
+        postcard::from_bytes(data).ok()
     }
 }

@@ -1,107 +1,62 @@
-use p256::PublicKey;
-use crate::dh::DhKeyPair;
-use alloc::vec::Vec;
-use serde::{Serialize, Deserialize};
+//! Message header.
+
 use crate::aead::encrypt;
-use aes_gcm_siv::{Key, Nonce, Aes256GcmSiv};
-use aes_gcm_siv::aead::{NewAead, AeadInPlace};
+use crate::dh::DhKeyPair;
+use aes_gcm_siv::aead::AeadInPlace;
+use aes_gcm_siv::{Aes256GcmSiv, KeyInit, Nonce};
+use alloc::vec::Vec;
+use serde::{Deserialize, Serialize};
+use x25519_dalek::PublicKey;
 
 #[cfg(test)]
 use crate::dh::gen_key_pair;
-use alloc::string::{ToString, String};
-use core::str::FromStr;
 use zeroize::Zeroize;
 
-#[derive(Debug, Clone)]
-pub struct Header {
-    pub public_key: PublicKey,
-    pub pn: usize, // Previous Chain Length
-    pub n: usize, // Message Number
-}
-
-#[derive(Serialize, Deserialize, Debug, Zeroize)]
+#[derive(Serialize, Deserialize, Debug, Zeroize, Clone, PartialEq, Eq)]
 #[zeroize(drop)]
-struct ExHeader {
-    #[serde(with = "serde_bytes")]
+pub struct Header {
     ad: Vec<u8>,
-    public_key: Vec<u8>,
-    pn: usize,
-    n: usize
+    pub public_key: PublicKey,
+    pub pn: usize,
+    pub n: usize,
 }
 
-// Message Header
+// A message header.
 impl Header {
-    // #[doc(hidden)]
+    /// Create a new message header.
+    /// Requires a [DhKeyPair], previous chain length, and message number.
+    /// Returns a [Header].
     pub fn new(dh_pair: &DhKeyPair, pn: usize, n: usize) -> Self {
         Header {
+            ad: Vec::new(),
             public_key: dh_pair.public_key,
             pn,
             n,
         }
     }
-    // #[doc(hidden)]
+
     pub fn concat(&self, ad: &[u8]) -> Vec<u8> {
-        let ex_header = ExHeader {
-            ad: ad.to_vec(),
-            public_key: self.public_key.to_string().as_bytes().to_vec(),
-            pn: self.pn,
-            n: self.n
-        };
-        bincode::serialize(&ex_header).expect("Failed to serialize Header")
+        let mut header = self.clone();
+        header.ad = ad.to_vec();
+        postcard::to_allocvec(&header).expect("Failed to serialize Header")
     }
 
-    pub fn encrypt(&self, hk: &[u8; 32], ad: &[u8]) -> (Vec<u8>, [u8; 12]) {
+    pub fn encrypt(&self, hk: &[u8; 32], ad: &[u8]) -> EncryptedHeader {
         let header_data = self.concat(ad);
-        encrypt(hk, &header_data, b"")
-    }
-
-    pub fn decrypt(hk: &Option<[u8; 32]>, ciphertext: &[u8], nonce: &[u8; 12]) -> Option<Self> {
-        let key_d = match hk {
-            None => {
-                return None
-            },
-            Some(d) => d
-        };
-        let key = Key::from_slice(key_d);
-        let cipher = Aes256GcmSiv::new(key);
-
-        let nonce = Nonce::from_slice(nonce);
-        let mut buffer = Vec::new();
-        buffer.extend_from_slice(ciphertext);
-        match cipher.decrypt_in_place(nonce, b"", &mut buffer) {
-            Ok(_) => {}
-            Err(_) => {
-                return None
-            }
-        };
-        Some(Header::from(buffer))
-    }
-    pub fn ex_public_key_bytes(&self) -> Vec<u8> {
-        self.public_key.to_string().as_bytes().to_vec()
+        let enc_header = encrypt(hk, &header_data, b"");
+        EncryptedHeader(enc_header.0, enc_header.1)
     }
 }
 
 impl From<Vec<u8>> for Header {
     fn from(d: Vec<u8>) -> Self {
-        let ex_header: ExHeader = bincode::deserialize(&d).unwrap();
-        let public_key_string = String::from_utf8(ex_header.public_key.clone()).unwrap();
-        Header {
-            public_key: PublicKey::from_str(&public_key_string).unwrap(),
-            pn: ex_header.pn,
-            n: ex_header.n,
-        }
+        postcard::from_bytes(&d).unwrap()
     }
 }
 
 impl From<&[u8]> for Header {
     fn from(d: &[u8]) -> Self {
-        let ex_header: ExHeader = bincode::deserialize(d).unwrap();
-        let public_key_string = String::from_utf8(ex_header.public_key.clone()).unwrap();
-        Header {
-            public_key: PublicKey::from_str(&public_key_string).unwrap(),
-            pn: ex_header.pn,
-            n: ex_header.n,
-        }
+        postcard::from_bytes(d).unwrap()
     }
 }
 
@@ -111,14 +66,28 @@ impl From<Header> for Vec<u8> {
     }
 }
 
-impl PartialEq for Header {
-    fn eq(&self, other: &Self) -> bool {
-        if self.public_key == other.public_key
-            && self.pn == other.pn
-            && self.n == other.n {
-            return true
-        }
-        false
+pub struct EncryptedHeader(Vec<u8>, [u8; 12]);
+
+impl EncryptedHeader {
+    pub fn decrypt(&self, hk: &Option<[u8; 32]>) -> Option<Header> {
+        let key_d = match hk {
+            None => return None,
+            Some(d) => d,
+        };
+
+        let cipher = match Aes256GcmSiv::new_from_slice(key_d) {
+            Ok(v) => v,
+            Err(_) => return None,
+        };
+
+        let nonce = Nonce::from_slice(&self.1);
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&self.0);
+        match cipher.decrypt_in_place(nonce, b"", &mut buffer) {
+            Ok(_) => {}
+            Err(_) => return None,
+        };
+        Some(Header::from(buffer))
     }
 }
 
@@ -130,12 +99,13 @@ pub fn gen_header() -> Header {
     Header::new(&dh_pair, pn, n)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::header::{gen_header, Header, ExHeader};
+    use x25519_dalek::PublicKey;
+
+    use crate::aead::{decrypt, encrypt};
+    use crate::header::{gen_header, Header};
     use crate::kdf_chain::gen_mk;
-    use crate::aead::{encrypt, decrypt};
 
     #[test]
     fn ser_des() {
@@ -172,11 +142,11 @@ mod tests {
 
     #[test]
     fn gen_ex_header() {
-        let ex_header = ExHeader {
+        let ex_header = Header {
             ad: alloc::vec![0],
-            public_key: alloc::vec![1],
+            public_key: PublicKey::from([1; 32]),
             pn: 0,
-            n: 0
+            n: 0,
         };
         let _string = alloc::format!("{:?}", ex_header);
     }
@@ -184,8 +154,8 @@ mod tests {
     #[test]
     fn dec_header() {
         let header = gen_header();
-        let (encrypted, nonce) = header.encrypt(&[0; 32], &[0]);
-        let decrypted = Header::decrypt(&Some([1_u8; 32]), &encrypted, &nonce);
+        let encrypted = header.encrypt(&[0; 32], &[0]);
+        let decrypted = encrypted.decrypt(&Some([1u8; 32]));
         assert_eq!(None, decrypted)
     }
 }

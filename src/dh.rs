@@ -1,43 +1,31 @@
+use core::fmt::{Debug, Formatter, Result};
 use rand_core::OsRng;
-use core::fmt::{Debug, Formatter};
-use core::fmt;
-use p256::PublicKey as PublicKey;
-use p256::ecdh::SharedSecret;
-use p256::SecretKey;
-use alloc::vec::Vec;
-use alloc::string::ToString;
-use p256::elliptic_curve::ecdh::diffie_hellman;
+use serde::{Deserialize, Serialize};
+use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
 
-#[derive(Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct DhKeyPair {
-    pub private_key: SecretKey,
+    pub private_key: StaticSecret,
     pub public_key: PublicKey,
-}
-
-
-impl DhKeyPair {
-    fn ex_public_key_bytes(&self) -> Vec<u8> {
-        self.public_key.to_string().as_bytes().to_vec()
-    }
 }
 
 impl PartialEq for DhKeyPair {
     fn eq(&self, other: &Self) -> bool {
-        if self.private_key.to_be_bytes() != other.private_key.to_be_bytes() {
-            return false
+        if self.private_key.to_bytes() != other.private_key.to_bytes() {
+            return false;
         }
-        if self.ex_public_key_bytes() != other.ex_public_key_bytes() {
-            return false
+        if self.public_key != other.public_key {
+            return false;
         }
         true
     }
 }
 
 impl Debug for DhKeyPair {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("DhKeyPair")
-            .field("private_key", &self.private_key.to_be_bytes())
-            .field("public_key", &self.ex_public_key_bytes())
+            .field("private_key", &self.private_key.to_bytes())
+            .field("public_key", self.public_key.as_bytes())
             .finish()
     }
 }
@@ -50,8 +38,8 @@ impl Default for DhKeyPair {
 
 impl DhKeyPair {
     pub fn new() -> Self {
-        let secret = SecretKey::random(&mut OsRng);
-        let public = secret.public_key();
+        let secret = StaticSecret::new(&mut OsRng);
+        let public = PublicKey::from(&secret);
         DhKeyPair {
             private_key: secret,
             public_key: public,
@@ -59,7 +47,7 @@ impl DhKeyPair {
     }
 
     pub fn key_agreement(&self, public_key: &PublicKey) -> SharedSecret {
-        diffie_hellman(self.private_key.to_nonzero_scalar(), public_key.as_affine())
+        self.private_key.diffie_hellman(public_key)
     }
 }
 
@@ -78,7 +66,6 @@ pub fn gen_key_pair() -> DhKeyPair {
 #[cfg(test)]
 mod tests {
     use crate::dh::DhKeyPair;
-    use alloc::string::ToString;
 
     #[test]
     fn key_generation() {
@@ -94,14 +81,6 @@ mod tests {
         let alice_shared_secret = alice_pair.key_agreement(&bob_pair.public_key);
         let bob_shared_secret = bob_pair.key_agreement(&alice_pair.public_key);
         assert_eq!(alice_shared_secret.as_bytes(), bob_shared_secret.as_bytes())
-    }
-
-    #[test]
-    fn ex_public_key() {
-        let key_pair = DhKeyPair::new();
-        let public_key_bytes = key_pair.ex_public_key_bytes();
-        let extracted_pk = key_pair.public_key.to_string().as_bytes().to_vec();
-        assert_eq!(extracted_pk, public_key_bytes)
     }
 
     #[test]

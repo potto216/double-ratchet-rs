@@ -1,64 +1,85 @@
-//! Implementation of the double ratchet system/encryption as specified by [Signal][1].
+//! A pure Rust implementation of the Double Ratchet Algorithm as specified by [Signal][1].
 //!
-//! **WARNING! This implementation uses P-256 NOT Curve25519 as specified by Signal!**
-//!
-//! The implementation follows the cryptographic recommendations provided by [Signal][2].
+//! This implementation follows the cryptographic recommendations provided by [Signal][2].
 //! The AEAD Algorithm uses a constant Nonce. This might be changed in the future.
 //!
-//! # Example Usage:
+//! Fork of [double-ratchet-2](https://github.com/Dione-Software/double-ratchet-2).
 //!
-//! ## Standard:
+//! ## Examples
+//!
+//! ### Standard Usage
+//!
+//! Alice encrypts a message which is then decrypted by Bob.
+//!
 //! ```
-//! use double_ratchet_2::ratchet::Ratchet;
+//! use double_ratchet_rs::Ratchet;
 //!
-//! let sk = [1; 32];                                                 // Initial Key created by a symmetric key agreement protocol
-//! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);        // Creating Bobs Ratchet (returns Bobs PublicKey)
-//! let mut alice_ratchet = Ratchet::init_alice(sk, public_key);      // Creating Alice Ratchet with Bobs PublicKey
-//! let data = b"Hello World".to_vec();                               // Data to be encrypted
-//! let ad = b"Associated Data";                                      // Associated Data
+//! let sk = [1; 32]; // Shared key created by a symmetric key agreement protocol
 //!
-//! let (header, encrypted, nonce) = alice_ratchet.ratchet_encrypt(&data, ad);   // Encrypting message with Alice Ratchet (Alice always needs to send the first message)
-//! let decrypted = bob_ratchet.ratchet_decrypt(&header, &encrypted, &nonce, ad); // Decrypt message with Bobs Ratchet
+//! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);   // Creating Bob's Ratchet (returns Bob's PublicKey)
+//! let mut alice_ratchet = Ratchet::init_alice(sk, public_key); // Creating Alice's Ratchet with Bob's PublicKey
+//!
+//! let data = b"Hello World".to_vec(); // Data to be encrypted
+//! let ad = b"Associated Data";        // Associated data
+//!
+//! let (header, encrypted, nonce) = alice_ratchet.encrypt(&data, ad);    // Encrypting message with Alice's Ratchet (Alice always needs to send the first message)
+//! let decrypted = bob_ratchet.decrypt(&header, &encrypted, &nonce, ad); // Decrypt message with Bob's Ratchet
+//!
 //! assert_eq!(data, decrypted)
 //! ```
 //!
-//! ## With lost message:
+//! ### Recovering a Lost Message
+//!
+//! Alice encrypts 2 messages for Bob.
+//! The latest message must be decrypted first.
+//!
 //! ```
-//! # use double_ratchet_2::ratchet::Ratchet;
+//! use double_ratchet_rs::Ratchet;
 //!
-//! let sk = [1; 32];                                                 // Initial Key created by a symmetric key agreement protocol
-//! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);        // Creating Bobs Ratchet (returns Bobs PublicKey)
-//! let mut alice_ratchet = Ratchet::init_alice(sk, public_key);      // Creating Alice Ratchet with Bobs PublicKey
-//! let data = b"Hello World".to_vec();                               // Data to be encrypted
-//! let ad = b"Associated Data";                                      // Associated Data
+//! let sk = [1; 32]; // Shared key created by a symmetric key agreement protocol
 //!
-//! let (header1, encrypted1, nonce1) = alice_ratchet.ratchet_encrypt(&data, ad); // Lost message
-//! let (header2, encrypted2, nonce2) = alice_ratchet.ratchet_encrypt(&data, ad); // Successful message
+//! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);   // Creating Bob's Ratchet (returns Bob's PublicKey)
+//! let mut alice_ratchet = Ratchet::init_alice(sk, public_key); // Creating Alice's Ratchet with Bob's PublicKey
 //!
-//! let decrypted2 = bob_ratchet.ratchet_decrypt(&header2, &encrypted2, &nonce2, ad); // Decrypting second message first
-//! let decrypted1 = bob_ratchet.ratchet_decrypt(&header1, &encrypted1, &nonce1, ad); // Decrypting latter message
+//! let data = b"Hello World".to_vec(); // Data to be encrypted
+//! let ad = b"Associated Data";        // Associated data
 //!
-//! let comp = decrypted1 == data && decrypted2 == data;
-//! assert!(comp);
+//! let (header1, encrypted1, nonce1) = alice_ratchet.encrypt(&data, ad); // Lost message
+//! let (header2, encrypted2, nonce2) = alice_ratchet.encrypt(&data, ad); // Successful message
+//!
+//! let decrypted2 = bob_ratchet.decrypt(&header2, &encrypted2, &nonce2, ad); // Decrypting second message first
+//! let decrypted1 = bob_ratchet.decrypt(&header1, &encrypted1, &nonce1, ad); // Decrypting latter message
+//!
+//! assert_eq!(data, decrypted1);
+//! assert_eq!(data, decrypted2);
 //! ```
 //!
-//! ## Encryption before recieving inital message
+//! ### Encryption Before Decrypting First Message
+//!
+//! Bob encrypts a message before decrypting one from Alice.
+//! This will result in a panic.
 //!
 //! ```should_panic
-//! use double_ratchet_2::ratchet::Ratchet;
+//! use double_ratchet_rs::Ratchet;
+//!
 //! let sk = [1; 32];
-//! let ad = b"Associated Data";
+//!
 //! let (mut bob_ratchet, _) = Ratchet::init_bob(sk);
+//!
 //! let data = b"Hello World".to_vec();
+//! let ad = b"Associated Data";
 //!
-//! let (_, _, _) = bob_ratchet.ratchet_encrypt(&data, ad);
+//! let (_, _, _) = bob_ratchet.encrypt(&data, ad);
 //! ```
 //!
-//! ## Encryption after recieving initial message
-//! However bob can (of course) also encrypt messages. This is possible, after decrypting the first message from alice.
+//! ### Encryption After Decrypting First Message
+//!
+//! Bob *can* also encrypt messages.
+//! This is only possible after decrypting one from Alice first though.
 //!
 //! ```
-//! use double_ratchet_2::ratchet::Ratchet;
+//! use double_ratchet_rs::Ratchet;
+//!
 //! let sk = [1; 32];
 //!
 //! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);
@@ -67,71 +88,81 @@
 //! let data = b"Hello World".to_vec();
 //! let ad = b"Associated Data";
 //!
-//! let (header1, encrypted1, nonce1) = alice_ratchet.ratchet_encrypt(&data, ad);
-//! let _decrypted1 = bob_ratchet.ratchet_decrypt(&header1, &encrypted1, &nonce1, ad);
+//! let (header1, encrypted1, nonce1) = alice_ratchet.encrypt(&data, ad);
+//! let _decrypted1 = bob_ratchet.decrypt(&header1, &encrypted1, &nonce1, ad);
 //!
-//! let (header2, encrypted2, nonce2) = bob_ratchet.ratchet_encrypt(&data, ad);
-//! let decrypted2 = alice_ratchet.ratchet_decrypt(&header2, &encrypted2, &nonce2, ad);
+//! let (header2, encrypted2, nonce2) = bob_ratchet.encrypt(&data, ad);
+//! let decrypted2 = alice_ratchet.decrypt(&header2, &encrypted2, &nonce2, ad);
 //!
 //! assert_eq!(data, decrypted2);
 //! ```
-//! ## Constructing and Deconstructing Headers
+//!
+//! ### Constructing and Deconstructing Headers
 //!
 //! ```
-//! # use double_ratchet_2::ratchet::Ratchet;
-//! # use double_ratchet_2::header::Header;
-//! # let sk = [1; 32];
-//! # let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);
-//! # let mut alice_ratchet = Ratchet::init_alice(sk, public_key);
-//! # let data = b"hello World".to_vec();
-//! # let ad = b"Associated Data";
-//! # let (header, _, _) = alice_ratchet.ratchet_encrypt(&data, ad);
+//! use double_ratchet_rs::{Header, Ratchet};
+//!
+//! let sk = [1; 32];
+//!
+//! let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);
+//! let mut alice_ratchet = Ratchet::init_alice(sk, public_key);
+//!
+//! let data = b"hello World".to_vec();
+//! let ad = b"Associated Data";
+//!
+//! let (header, _, _) = alice_ratchet.encrypt(&data, ad);
 //! let header_bytes: Vec<u8> = header.clone().into();
 //! let header_const = Header::from(header_bytes);
+//!
 //! assert_eq!(header, header_const);
 //! ```
 //!
-//! # Example Ratchet with encrypted headers
+//! ### Encrypted Headers
 //!
 //! ```
-//! use double_ratchet_2::ratchet::RatchetEncHeader;
+//! use double_ratchet_rs::RatchetEncHeader;
+//!
 //! let sk = [0; 32];
 //! let shared_hka = [1; 32];
 //! let shared_nhkb = [2; 32];
 //!
 //! let (mut bob_ratchet, public_key) = RatchetEncHeader::init_bob(sk, shared_hka, shared_nhkb);
 //! let mut alice_ratchet = RatchetEncHeader::init_alice(sk, public_key, shared_hka, shared_nhkb);
+//!
 //! let data = b"Hello World".to_vec();
 //! let ad = b"Associated Data";
 //!
-//! let (header, encrypted, nonce) = alice_ratchet.ratchet_encrypt(&data, ad);
-//! let decrypted = bob_ratchet.ratchet_decrypt(&header, &encrypted, &nonce, ad);
+//! let (header, encrypted, nonce) = alice_ratchet.encrypt(&data, ad);
+//! let decrypted = bob_ratchet.decrypt(&header, &encrypted, &nonce, ad);
+//!
 //! assert_eq!(data, decrypted)
 //! ```
 //!
-//! # Export / Import Ratchet with encrypted headers
-//! This ratchet implements import and export functionality. This works over a bincode backend and
-//! maybe useful for saving Ratchets to and loading from a file.
+//! ### Exporting / Importing Ratchet w/ Encrypted Headers
+//!
+//! This can be used for storing and using ratchets in a file.
+//!
 //! ```
-//! # use double_ratchet_2::ratchet::RatchetEncHeader;
-//! # let sk = [0; 32];
-//! # let shared_hka = [1; 32];
-//! # let shared_nhkb = [2; 32];
+//! use double_ratchet_rs::RatchetEncHeader;
+//!
+//! let sk = [0; 32];
+//! let shared_hka = [1; 32];
+//! let shared_nhkb = [2; 32];
+//!
 //! let (bob_ratchet, public_key) = RatchetEncHeader::init_bob(sk, shared_hka, shared_nhkb);
 //! let ex_ratchet = bob_ratchet.export();
 //! let im_ratchet = RatchetEncHeader::import(&ex_ratchet).unwrap();
+//!
 //! assert_eq!(im_ratchet, bob_ratchet)
 //! ```
 //!
-//! # Features
+//! ## **M**inimum **S**upported **R**ust **V**ersion (MSRV)
 //!
-//! Currently the crate only supports one feature: ring. If feature is enabled the crate switches
-//! to ring-compat and uses ring as backend for Sha512 Hashing. May result in slightly better performance.
+//! The current MSRV is 1.61.0.
 //!
+//! ## License
 //!
-//! TODO:
-//! - [x] Standard Double Ratchet
-//! - [x] [Double Ratchet with encrypted headers][3]
+//! This project is licensed under the [MIT license](https://github.com/magnetite-dev/double-ratchet-rs/blob/main/LICENSE).
 //!
 //! [1]: https://signal.org/docs/specifications/doubleratchet/
 //! [2]: https://signal.org/docs/specifications/doubleratchet/#recommended-cryptographic-algorithms
@@ -142,15 +173,14 @@
 
 extern crate alloc;
 
-pub use p256::PublicKey;
+pub use x25519_dalek::PublicKey;
 
 mod aead;
 mod dh;
-mod kdf_root;
 mod kdf_chain;
+mod kdf_root;
+mod ratchet;
+mod header;
 
-pub mod ratchet;
-
-/// Message Header
-pub mod header;
-
+pub use ratchet::*;
+pub use header::*;

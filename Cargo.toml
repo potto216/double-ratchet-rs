@@ -1,37 +1,29 @@
 [package]
-name = "double-ratchet-2"
-authors = ["Hannes Furmans"]
-description = "Implementation of Double Ratchet as specified by Signal."
-homepage = "https://github.com/Dione-Software/double-ratchet-2"
-repository = "https://github.com/Dione-Software/double-ratchet-2"
+name = "double-ratchet-rs"
+authors = ["Magnetite Contributors", "Hannes Furmans"]
+description = "A pure Rust implementation of the Double Ratchet Algorithm as specified by Signal."
+homepage = "https://github.com/magnetite-dev/double-ratchet-rs"
+repository = "https://github.com/magnetite-dev/double-ratchet-rs"
 readme = "README.md"
 keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
-version = "0.3.7"
-edition = "2018"
+version = "0.4.3"
+edition = "2021"
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[badges]
-maintenance = { status = "actively-developed" }
-
-
 [dependencies]
-p256 = {version = "0.10", features = ["ecdh", "arithmetic", "pem", "jwk"]}
-rand_core = {version = "0.6"}
-getrandom = {version = "0.2.3"}
+x25519-dalek = {version = "2.0.0-pre.1", default-features = false, features = ["serde", "u64_backend"]}
+rand_core = "0.6"
 hkdf = "0.12"
 hmac = "0.12"
-aes-gcm-siv = {version = "0.10.3"}
-sha2 = {version = "0.10"}
+aes-gcm-siv = "0.11"
+sha2 = {version = "0.10", default-features = false}
 serde = {version = "1", default-features = false, features = ["derive"]}
-serde_bytes = "0.11"
-bincode = "1"
+postcard = {version = "1", default-features = false, features = ["alloc"]}
 hashbrown = {version = "0.13", features = ["serde"]}
-zeroize = {version = "1.3", features = ["zeroize_derive"]}
+zeroize = {version = "1.5", default-features = false, features = ["zeroize_derive"]}
 
 [dev-dependencies]
-criterion = "0.4.0"
+criterion = "0.4"
 
 [[bench]]
 name = "double_ratchet_bench"
@@ -39,6 +31,3 @@ harness = false
 
 [profile.release]
 lto = true
-
-[features]
-wasm = ["getrandom/js"]
