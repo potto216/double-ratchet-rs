@@ -6,21 +6,21 @@ homepage = "https://github.com/notsatvrn/double-ratchet-rs"
 repository = "https://github.com/notsatvrn/double-ratchet-rs"
 readme = "README.md"
 keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 license = "MIT"
 
 [dependencies]
-x25519-dalek = {version = "2.0.0-pre.1", default-features = false, features = ["serde", "u64_backend"]}
+x25519-dalek = {version = "2.0.0-rc.3", default-features = false, features = ["serde", "static_secrets", "zeroize"]}
 rand_core = "0.6"
 hkdf = "0.12"
 hmac = "0.12"
 aes-gcm-siv = "0.11"
 sha2 = {version = "0.10", default-features = false}
-serde = {version = "1", default-features = false, features = ["derive"]}
-postcard = {version = "1", default-features = false, features = ["alloc"]}
-hashbrown = {version = "0.13", features = ["serde"]}
-zeroize = {version = "1.5", default-features = false, features = ["zeroize_derive"]}
+serde = {version = "1.0", default-features = false, features = ["derive"]}
+postcard = {version = "1.0", default-features = false, features = ["alloc"]}
+hashbrown = {version = "0.14", features = ["serde"]}
+zeroize = {version = "1.6", default-features = false, features = ["zeroize_derive"]}
 
 [dev-dependencies]
 criterion = "0.4"

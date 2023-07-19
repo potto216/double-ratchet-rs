@@ -38,7 +38,7 @@ impl Default for DhKeyPair {
 
 impl DhKeyPair {
     pub fn new() -> Self {
-        let secret = StaticSecret::new(&mut OsRng);
+        let secret = StaticSecret::random_from_rng(&mut OsRng);
         let public = PublicKey::from(&secret);
         DhKeyPair {
             private_key: secret,
