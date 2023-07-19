@@ -5,10 +5,10 @@
 
 # double-ratchet-rs 
 
-A pure Rust implementation of the Double Ratchet Algorithm as specified by [Signal][1].
+A pure Rust implementation of the Double Ratchet algorithm as described by [Signal][1].
 
 This implementation follows the cryptographic recommendations provided by [Signal][2].
-The AEAD Algorithm uses a constant Nonce. This might be changed in the future.
+The AEAD algorithm uses a constant Nonce. This might be changed in the future.
 
 Fork of [double-ratchet-2](https://github.com/Dione-Software/double-ratchet-2).
 
@@ -163,9 +163,14 @@ let im_ratchet = RatchetEncHeader::import(&ex_ratchet).unwrap();
 assert_eq!(im_ratchet, bob_ratchet)
 ```
 
+## Features
+
+- `hashbrown`: Use `hashbrown` for `HashMap`. Enabled by default for `no_std` support.
+- `std`: Use `std` instead of `alloc`. Can be used with `hashbrown`, but it isn't required.
+
 ## **M**inimum **S**upported **R**ust **V**ersion (MSRV)
 
-The current MSRV is 1.61.0.
+The current MSRV is 1.60.0 without `hashbrown` and 1.64.0 with `hashbrown`.
 
 ## License
 
@@ -174,4 +179,3 @@ This project is licensed under the [MIT license](https://github.com/notsatvrn/do
 [1]: https://signal.org/docs/specifications/doubleratchet/
 [2]: https://signal.org/docs/specifications/doubleratchet/#recommended-cryptographic-algorithms
 [3]: https://signal.org/docs/specifications/doubleratchet/#double-ratchet-with-header-encryption
-

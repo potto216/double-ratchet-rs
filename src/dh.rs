@@ -24,7 +24,7 @@ impl PartialEq for DhKeyPair {
 impl Debug for DhKeyPair {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("DhKeyPair")
-            .field("private_key", &self.private_key.to_bytes())
+            .field("private_key", self.private_key.as_bytes())
             .field("public_key", self.public_key.as_bytes())
             .finish()
     }
@@ -38,7 +38,7 @@ impl Default for DhKeyPair {
 
 impl DhKeyPair {
     pub fn new() -> Self {
-        let secret = StaticSecret::random_from_rng(&mut OsRng);
+        let secret = StaticSecret::random_from_rng(OsRng);
         let public = PublicKey::from(&secret);
         DhKeyPair {
             private_key: secret,
@@ -56,11 +56,6 @@ pub fn gen_shared_secret() -> SharedSecret {
     let alice_pair = DhKeyPair::new();
     let bob_pair = DhKeyPair::new();
     alice_pair.key_agreement(&bob_pair.public_key)
-}
-
-#[cfg(test)]
-pub fn gen_key_pair() -> DhKeyPair {
-    DhKeyPair::new()
 }
 
 #[cfg(test)]

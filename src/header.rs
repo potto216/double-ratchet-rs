@@ -4,13 +4,12 @@ use crate::aead::encrypt;
 use crate::dh::DhKeyPair;
 use aes_gcm_siv::aead::AeadInPlace;
 use aes_gcm_siv::{Aes256GcmSiv, KeyInit, Nonce};
-use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use x25519_dalek::PublicKey;
-
-#[cfg(test)]
-use crate::dh::gen_key_pair;
 use zeroize::Zeroize;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 #[derive(Serialize, Deserialize, Debug, Zeroize, Clone, PartialEq, Eq)]
 #[zeroize(drop)]
@@ -93,7 +92,7 @@ impl EncryptedHeader {
 
 #[cfg(test)]
 pub fn gen_header() -> Header {
-    let dh_pair = gen_key_pair();
+    let dh_pair = DhKeyPair::new();
     let pn = 10;
     let n = 50;
     Header::new(&dh_pair, pn, n)

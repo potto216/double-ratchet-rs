@@ -1,13 +1,15 @@
 use aes_gcm_siv::aead::AeadInPlace;
 use aes_gcm_siv::{Aes256GcmSiv, KeyInit, Nonce};
-use alloc::vec::Vec;
 use rand_core::{OsRng, RngCore};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 pub fn encrypt(mk: &[u8; 32], data: &[u8], associated_data: &[u8]) -> (Vec<u8>, [u8; 12]) {
     let cipher = Aes256GcmSiv::new_from_slice(mk).expect("Encryption failure {}");
 
     let mut nonce_data = [0u8; 12];
-    OsRng::fill_bytes(&mut OsRng, &mut nonce_data);
+    OsRng.fill_bytes(&mut nonce_data);
     let nonce = Nonce::from_slice(&nonce_data);
 
     let mut buffer = Vec::new();

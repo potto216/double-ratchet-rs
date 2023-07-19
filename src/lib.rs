@@ -1,7 +1,7 @@
-//! A pure Rust implementation of the Double Ratchet Algorithm as specified by [Signal][1].
+//! A pure Rust implementation of the Double Ratchet algorithm as described by [Signal][1].
 //!
 //! This implementation follows the cryptographic recommendations provided by [Signal][2].
-//! The AEAD Algorithm uses a constant Nonce. This might be changed in the future.
+//! The AEAD algorithm uses a constant Nonce. This might be changed in the future.
 //!
 //! Fork of [double-ratchet-2](https://github.com/Dione-Software/double-ratchet-2).
 //!
@@ -156,9 +156,14 @@
 //! assert_eq!(im_ratchet, bob_ratchet)
 //! ```
 //!
+//! ## Features
+//!
+//! - `hashbrown`: Use `hashbrown` for `HashMap`. Enabled by default for `no_std` support.
+//! - `std`: Use `std` instead of `alloc`. Can be used with `hashbrown`, but it isn't required.
+//!
 //! ## **M**inimum **S**upported **R**ust **V**ersion (MSRV)
 //!
-//! The current MSRV is 1.61.0.
+//! The current MSRV is 1.60.0 without `hashbrown` and 1.64.0 with `hashbrown`.
 //!
 //! ## License
 //!
@@ -168,19 +173,24 @@
 //! [2]: https://signal.org/docs/specifications/doubleratchet/#recommended-cryptographic-algorithms
 //! [3]: https://signal.org/docs/specifications/doubleratchet/#double-ratchet-with-header-encryption
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![allow(stable_features)]
 
+#[cfg(not(feature = "std"))]
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std as alloc;
 
 pub use x25519_dalek::PublicKey;
 
 mod aead;
 mod dh;
+mod header;
 mod kdf_chain;
 mod kdf_root;
 mod ratchet;
-mod header;
 
-pub use ratchet::*;
+pub use dh::*;
 pub use header::*;
+pub use ratchet::*;

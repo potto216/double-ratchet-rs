@@ -1,12 +1,12 @@
 [package]
 name = "double-ratchet-rs"
 authors = ["satvrn", "Hannes Furmans"]
-description = "A pure Rust implementation of the Double Ratchet Algorithm as specified by Signal."
+description = "A pure Rust implementation of the Double Ratchet algorithm as described by Signal."
 homepage = "https://github.com/notsatvrn/double-ratchet-rs"
 repository = "https://github.com/notsatvrn/double-ratchet-rs"
 readme = "README.md"
 keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 license = "MIT"
 
@@ -19,7 +19,7 @@ aes-gcm-siv = "0.11"
 sha2 = {version = "0.10", default-features = false}
 serde = {version = "1.0", default-features = false, features = ["derive"]}
 postcard = {version = "1.0", default-features = false, features = ["alloc"]}
-hashbrown = {version = "0.14", features = ["serde"]}
+hashbrown = {version = "0.14", features = ["serde"], optional = true}
 zeroize = {version = "1.6", default-features = false, features = ["zeroize_derive"]}
 
 [dev-dependencies]
@@ -31,3 +31,7 @@ harness = false
 
 [profile.release]
 lto = true
+
+[features]
+default = ["hashbrown"]
+std = ["sha2/std", "serde/std", "postcard/use-std", "zeroize/std"]

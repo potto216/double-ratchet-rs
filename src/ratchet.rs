@@ -2,14 +2,19 @@
 
 use crate::aead::{decrypt, encrypt};
 use crate::dh::DhKeyPair;
-use crate::header::{Header, EncryptedHeader};
+use crate::header::{EncryptedHeader, Header};
 use crate::kdf_chain::kdf_ck;
 use crate::kdf_root::{kdf_rk, kdf_rk_he};
-use alloc::vec::Vec;
-use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use x25519_dalek::PublicKey;
 use zeroize::Zeroize;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(any(not(feature = "std"), feature = "hashbrown"))]
+use hashbrown::HashMap;
+#[cfg(all(feature = "std", not(feature = "hashbrown")))]
+use std::collections::HashMap;
 
 const MAX_SKIP: usize = 100;
 
@@ -115,7 +120,12 @@ impl Ratchet {
             self.mkskipped
                 .remove(&(header.public_key.to_bytes(), header.n))
                 .unwrap();
-            Some(decrypt(&mk, enc_data, &header.concat(associated_data), nonce))
+            Some(decrypt(
+                &mk,
+                enc_data,
+                &header.concat(associated_data),
+                nonce,
+            ))
         } else {
             None
         }
@@ -156,7 +166,7 @@ impl Ratchet {
             Some(d) => d,
             None => {
                 if Some(header.public_key) != self.dhr {
-                    if self.ckr != None {
+                    if self.ckr.is_some() {
                         self.skip_message_keys(header.pn).unwrap();
                     }
                     self.dhratchet(header);
@@ -298,7 +308,11 @@ impl RatchetEncHeader {
     /// Encrypt bytes with a [RatchetEncHeader].
     /// Requires bytes and associated bytes.
     /// Returns an [EncryptedHeader], encrypted bytes, and a nonce.
-    pub fn encrypt(&mut self, data: &[u8], associated_data: &[u8]) -> (EncryptedHeader, Vec<u8>, [u8; 12]) {
+    pub fn encrypt(
+        &mut self,
+        data: &[u8],
+        associated_data: &[u8],
+    ) -> (EncryptedHeader, Vec<u8>, [u8; 12]) {
         let (cks, mk) = kdf_ck(&self.cks.unwrap());
         self.cks = Some(cks);
         let header = Header::new(&self.dhs, self.pn, self.ns);
@@ -316,7 +330,7 @@ impl RatchetEncHeader {
         associated_data: &[u8],
     ) -> (Option<Vec<u8>>, Option<Header>) {
         let ret_data = self.mkskipped.clone().into_iter().find(|e| {
-            let header = enc_header.decrypt(&e.0.0);
+            let header = enc_header.decrypt(&e.0 .0);
             match header {
                 None => false,
                 Some(h) => h.n == e.0 .1,
@@ -325,7 +339,7 @@ impl RatchetEncHeader {
         match ret_data {
             None => (None, None),
             Some(data) => {
-                let header = enc_header.decrypt(&data.0.0);
+                let header = enc_header.decrypt(&data.0 .0);
                 let mk = data.1;
                 self.mkskipped.remove(&(data.0 .0, data.0 .1));
                 (
@@ -425,7 +439,8 @@ impl RatchetEncHeader {
         nonce: &[u8; 12],
         associated_data: &[u8],
     ) -> (Vec<u8>, Header) {
-        let (data, header) = self.try_skipped_message_keys(enc_header, enc_data, nonce, associated_data);
+        let (data, header) =
+            self.try_skipped_message_keys(enc_header, enc_data, nonce, associated_data);
         if let Some(d) = data {
             return (d, header.unwrap());
         };
