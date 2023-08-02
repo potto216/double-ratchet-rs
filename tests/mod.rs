@@ -1,5 +1,10 @@
 use double_ratchet_rs::{Ratchet, RatchetEncHeader};
+
+#[cfg(not(feature = "std"))]
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std as alloc;
 
 #[test]
 fn init() {

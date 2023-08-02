@@ -29,7 +29,7 @@ fn criterion_benchmark_2(c: &mut Criterion) {
     c.bench_function("Ratchet Enc Skip", |b| b.iter(|| ratchet_enc_skip()));
 }
 
-fn ratchet_encryt_decrypt_four() {
+fn ratchet_encrypt_decrypt_four() {
     let sk = [1; 32];
     let data = include_bytes!("../src/dh.rs").to_vec();
     let (mut bob_ratchet, public_key) = Ratchet::init_bob(sk);
@@ -42,7 +42,7 @@ fn ratchet_encryt_decrypt_four() {
 
 fn criterion_benchmark_3(c: &mut Criterion) {
     c.bench_function("Ratchet Dec Four", |b| {
-        b.iter(|| ratchet_encryt_decrypt_four())
+        b.iter(|| ratchet_encrypt_decrypt_four())
     });
 }
 

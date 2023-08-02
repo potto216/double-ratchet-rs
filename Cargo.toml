@@ -1,14 +1,17 @@
 [package]
 name = "double-ratchet-rs"
+version = "0.4.6"
 authors = ["satvrn", "Hannes Furmans"]
+edition = "2021"
+rust-version = "1.60"
 description = "A pure Rust implementation of the Double Ratchet algorithm as described by Signal."
+documentation = "https://docs.rs/double-ratchet-rs"
+readme = "README.md"
 homepage = "https://github.com/notsatvrn/double-ratchet-rs"
 repository = "https://github.com/notsatvrn/double-ratchet-rs"
-readme = "README.md"
-keywords = ["double-ratchet", "crypto", "cryptography", "signal"]
-version = "0.4.6"
-edition = "2021"
 license = "MIT"
+keywords = ["double-ratchet", "signal"]
+categories = ["algorithms", "cryptography", "no-std"]
 
 [dependencies]
 x25519-dalek = {version = "2.0.0-rc.3", default-features = false, features = ["serde", "static_secrets", "zeroize"]}
@@ -22,8 +25,15 @@ postcard = {version = "1.0", default-features = false, features = ["alloc"]}
 hashbrown = {version = "0.14", features = ["serde"], optional = true}
 zeroize = {version = "1.6", default-features = false, features = ["zeroize_derive"]}
 
-[dev-dependencies]
+[target.'cfg(all(target_family = "wasm", target_vendor = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 criterion = "0.4"
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+criterion = { version = "0.4", default-features = false, features = ["plotters", "cargo_bench_support"] }
+wasm-bindgen-test = "0.2"
 
 [[bench]]
 name = "double_ratchet_bench"
