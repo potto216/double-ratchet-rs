@@ -45,3 +45,4 @@ lto = true
 [features]
 default = ["hashbrown"]
 std = ["sha2/std", "serde/std", "postcard/use-std", "zeroize/std"]
+

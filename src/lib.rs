@@ -194,3 +194,5 @@ mod ratchet;
 pub use dh::*;
 pub use header::*;
 pub use ratchet::*;
+pub use kdf_chain::*;
+pub use kdf_root::*;
