@@ -6,15 +6,25 @@ use sha2::Sha512;
 use crate::dh::gen_shared_secret;
 use x25519_dalek::SharedSecret;
 
+// the root chain key is the salk and the shared secret is the new key material
+// The extract-then-expand paradigm is crucial when dealing with inputs
+// like Diffie-Hellman outputs, as it converts potentially structured input
+// into a uniformly distributed pseudorandom key. This effectively prevents
+//  an attacker from exploiting any inherent properties of the input.
+
+// Abbeviations: rk = root chain key, ck = chain key
 pub fn kdf_rk(rk: &[u8; 32], dh_out: &SharedSecret) -> ([u8; 32], [u8; 32]) {
+    
+    // the extraction step is done here
     let h = Hkdf::<Sha512>::new(Some(rk), dh_out.as_bytes());
     let mut okm = [0u8; 64];
     let info = b"Root Key Info";
+    // expands the internal pseudo random key into the new key pair
     h.expand(info, &mut okm).unwrap();
-    let (a, b) = okm.split_at(32);
+    let (new_rk, new_ck) = okm.split_at(32);
     (
-        a.try_into().expect("Incorrect length"),
-        b.try_into().expect("Incorrect length"),
+        new_rk.try_into().expect("Incorrect length"),
+        new_ck.try_into().expect("Incorrect length"),
     )
 }
 

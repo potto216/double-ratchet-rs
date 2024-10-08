@@ -7,36 +7,27 @@ use crate::kdf_root::gen_ck;
 
 type HmacSha512 = Hmac<Sha512>;
 
+// Generates the a pair of keys-a chain key and a message key from a current chain key.
+// Abbeviations: mk = message key, ck = chain key
 pub fn kdf_ck(ck: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
-    let mac = HmacSha512::new_from_slice(ck).expect("Invalid Key Length");
-    let result = mac.finalize().into_bytes();
-    let (a, b) = result.split_at(32);
+    let mut mac_mk = HmacSha512::new_from_slice(ck).expect("Invalid Key Length");
+    let mut mac_ck = HmacSha512::new_from_slice(ck).expect("Invalid Key Length");
 
-    (
-        a.try_into().expect("Incorrect Length"),
-        b.try_into().expect("Incorrect Length"),
-    )
-}
-
-pub fn kdf_ck_v2(ck: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
-    // Create HMAC instances with ck as the key
-    let mut mac1 = HmacSha512::new_from_slice(ck).expect("Invalid Key Length");
-    let mut mac2 = HmacSha512::new_from_slice(ck).expect("Invalid Key Length");
-
-    // Use separate constants as input
-    mac1.update(&[0x01]);
-    mac2.update(&[0x02]);
-
+  // Use separate constants to differentiate the inputs when 
+  // generating the message key and the next chain key
+  // This ensures that the two keys derived from the same chain key are
+  // independent to achieve key separation
+    mac_mk.update(&[0x01]); 
+    mac_ck.update(&[0x02]);
     // Finalize the HMAC computations
-    let result1 = mac1.finalize().into_bytes();
-    let result2 = mac2.finalize().into_bytes();
-
+    let result_mk = mac_mk.finalize().into_bytes();
+    let result_ck = mac_ck.finalize().into_bytes();
     // Convert the results to [u8; 32]
-    let mk = result1[..32].try_into().expect("Incorrect Length");
-    let next_ck = result2[..32].try_into().expect("Incorrect Length");
-
+    let mk = result_mk[..32].try_into().expect("Incorrect Length");
+    let next_ck = result_ck[..32].try_into().expect("Incorrect Length");
     (mk, next_ck)
 }
+
 
 #[cfg(test)]
 pub fn gen_mk() -> [u8; 32] {
@@ -48,7 +39,6 @@ pub fn gen_mk() -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use crate::kdf_chain::kdf_ck;
-    use crate::kdf_chain::kdf_ck_v2;
     use crate::kdf_root::gen_ck;
     
     #[test]
@@ -59,11 +49,4 @@ mod tests {
         assert_ne!(mk1, mk2)
     }
     
-    #[test]
-    fn kdf_chain_ratchet_v2() {
-        let ck = gen_ck();
-        let (ck, mk1) = kdf_ck_v2(&ck);
-        let (_, mk2) = kdf_ck_v2(&ck);
-        assert_ne!(mk1, mk2)
-    }
 }
